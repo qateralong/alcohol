@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "alcohol",
+  "version": "${version}",
+  "name": "Alcohol",
+  "description": "Server-side: ferment drinks in barrels buried in dirt, chain potions and drinks into new ones, drink for ScreenFX hangovers. Farmers Delight compatible.",
+  "authors": [
+    "qateralong"
+  ],
+  "license": "All Rights Reserved",
+  "icon": "assets/alcohol/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.qateralong.alcohol.Main"
+    ]
+  },
+  "mixins": [
+    "alcohol.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "screenfx": "*",
+    "farmersdelight": "*"
+  }
+}
