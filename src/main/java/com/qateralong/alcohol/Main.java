@@ -17,6 +17,11 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerBlockEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -26,6 +31,8 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import org.slf4j.Logger;
@@ -60,6 +67,11 @@ public class Main implements ModInitializer {
             }
         });
         CommandRegistrationCallback.EVENT.register((dispatcher, access, environment) -> register(dispatcher));
+        AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> Intox.inComa(player) ? InteractionResult.FAIL : InteractionResult.PASS);
+        AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) -> Intox.inComa(player) ? InteractionResult.FAIL : InteractionResult.PASS);
+        UseBlockCallback.EVENT.register((player, level, hand, hit) -> Intox.inComa(player) ? InteractionResult.FAIL : InteractionResult.PASS);
+        UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> Intox.inComa(player) ? InteractionResult.FAIL : InteractionResult.PASS);
+        UseItemCallback.EVENT.register((player, level, hand) -> Intox.inComa(player) ? InteractionResultHolder.fail(player.getItemInHand(hand)) : InteractionResultHolder.pass(player.getItemInHand(hand)));
     }
 
     private static void reload() {
@@ -104,18 +116,30 @@ public class Main implements ModInitializer {
                                             return 1;
                                         }))))
                 .then(Commands.literal("sober").requires(source -> source.hasPermission(Config.get().permissionLevel))
-                        .then(Commands.argument("player", EntityArgument.player()).executes(context -> {
-                            ServerPlayer player = EntityArgument.getPlayer(context, "player");
-                            Intox.clear(player);
-                            context.getSource().sendSuccess(() -> Component.literal(player.getGameProfile().getName() + " протрезвел"), true);
+                        .executes(context -> sober(context, List.of(context.getSource().getPlayerOrException())))
+                        .then(Commands.argument("players", EntityArgument.players())
+                                .executes(context -> sober(context, EntityArgument.getPlayers(context, "players")))))
+                .then(Commands.literal("level")
+                        .executes(context -> {
+                            ServerPlayer player = context.getSource().getPlayerOrException();
+                            context.getSource().sendSuccess(() -> Component.literal(describe(Intox.level(player))).withStyle(ChatFormatting.GOLD), false);
                             return 1;
-                        })))
-                .then(Commands.literal("level").requires(source -> source.hasPermission(Config.get().permissionLevel))
-                        .then(Commands.argument("player", EntityArgument.player()).executes(context -> {
-                            ServerPlayer player = EntityArgument.getPlayer(context, "player");
-                            context.getSource().sendSuccess(() -> Component.literal(String.format(Locale.ROOT, "Опьянение %s: %.1f", player.getGameProfile().getName(), Intox.level(player))), false);
-                            return 1;
-                        })))
+                        })
+                        .then(Commands.argument("player", EntityArgument.player()).requires(source -> source.hasPermission(Config.get().permissionLevel))
+                                .executes(context -> {
+                                    ServerPlayer player = EntityArgument.getPlayer(context, "player");
+                                    context.getSource().sendSuccess(() -> Component.literal(String.format(Locale.ROOT, "Опьянение %s: %.1f из %.0f (кома с %.1f)%s",
+                                            player.getGameProfile().getName(), Intox.level(player), Config.get().maxLevel, Config.get().comaLevel,
+                                            Intox.inComa(player) ? ", в коме" : "")), false);
+                                    return 1;
+                                })
+                                .then(Commands.argument("value", DoubleArgumentType.doubleArg(0.0)).executes(context -> {
+                                    ServerPlayer player = EntityArgument.getPlayer(context, "player");
+                                    double value = DoubleArgumentType.getDouble(context, "value");
+                                    Intox.set(player, value);
+                                    context.getSource().sendSuccess(() -> Component.literal(String.format(Locale.ROOT, "Опьянение %s: %.1f", player.getGameProfile().getName(), Intox.level(player))), true);
+                                    return 1;
+                                }))))
                 .then(Commands.literal("reload").requires(source -> source.hasPermission(Config.get().permissionLevel)).executes(context -> {
                     reload();
                     context.getSource().sendSuccess(() -> Component.literal("Напитков загружено: " + Drinks.recipes().size()), true);
@@ -127,6 +151,24 @@ public class Main implements ModInitializer {
                 }))
                 .then(Commands.literal("export").requires(source -> source.hasPermission(Config.get().permissionLevel)).executes(Main::export))
                 .then(drinkArg.executes(Main::show)));
+    }
+
+    private static int sober(CommandContext<CommandSourceStack> context, java.util.Collection<ServerPlayer> players) {
+        for (ServerPlayer player : players) {
+            Intox.clear(player);
+        }
+        String text = players.size() == 1 ? players.iterator().next().getGameProfile().getName() + " протрезвел" : "Протрезвели: " + players.size();
+        context.getSource().sendSuccess(() -> Component.literal(text), true);
+        return players.size();
+    }
+
+    private static String describe(double level) {
+        if (level < 0.5) {
+            return "Вы трезвы";
+        }
+        String state = level < 2 ? "Слегка навеселе" : level < 4 ? "Пьяны" : level < 7 ? "Сильно пьяны" : "Почти без сознания";
+        return String.format(Locale.ROOT, "%s (%.1f из %.0f). Протрезвеете примерно через %d мин.", state, level, Config.get().maxLevel,
+                (int) Math.ceil(level / Math.max(0.01, Config.get().decayPerMinute)));
     }
 
     private static int list(CommandContext<CommandSourceStack> context) {

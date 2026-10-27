@@ -17,8 +17,13 @@ public class Config {
 
     public int permissionLevel = 2;
     public double speed = 1.0;
-    public double decayPerMinute = 1.0;
+    public double decayPerMinute = 1.5;
     public double maxLevel = 10.0;
+    public double comaLevel = 9.0;
+    public int comaSeconds = 30;
+    public float comaDamage = 4.0F;
+    public double fxDurationScale = 0.4;
+    public int hangoverSeconds = 30;
     public List<String> buriedBlocks = new ArrayList<>(List.of("#minecraft:dirt"));
     public List<Drink> drinks = new ArrayList<>();
 
